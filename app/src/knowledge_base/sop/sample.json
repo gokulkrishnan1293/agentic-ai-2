@@ -1,0 +1,178 @@
+{
+  "intent": "duplicate_claim",
+  "process_name": "Duplicates Processing",
+  "scenarios": [
+    {
+      "scenario_id": "DUP-01",
+      "name": "Initial Member Validation",
+      "description": "First step of the process. Verify that the member exists and their policy was active on the date of service.",
+      "required_data": [
+        "member_id",
+        "date_of_service",
+        "member_validation_status"
+      ],
+      "logic": [
+        {
+          "condition": "Member validation status is 'validated'",
+          "if_true": {
+            "action": "PROCEED",
+            "next_step": "DUP-02"
+          },
+          "if_false": {
+            "action": "END",
+            "reason": "Member validation failed."
+          }
+        }
+      ]
+    },
+    {
+      "scenario_id": "DUP-02",
+      "name": "Provider Validation",
+      "description": "Verify that the provider exists and is correctly configured.",
+      "required_data": [
+        "provider_npi",
+        "provider_validation_status"
+      ],
+      "logic": [
+        {
+          "condition": "Provider validation status is 'validated'",
+          "if_true": {
+            "action": "PROCEED",
+            "next_step": "DUP-03"
+          },
+          "if_false": {
+            "action": "END",
+            "reason": "Provider validation failed."
+          }
+        }
+      ]
+    },
+    {
+      "scenario_id": "DUP-03",
+      "name": "History Claims Extraction",
+      "description": "After initial validations, extract all historical claims for the same member to prepare for comparison.",
+      "required_data": [
+        "member_id",
+        "current_claim_details"
+      ],
+      "logic": [
+        {
+          "condition": "History claims are found for the member",
+          "if_true": {
+            "action": "PROCEED",
+            "next_step": "DUP-04"
+          },
+          "if_false": {
+            "action": "PAY",
+            "reason": "No history claims found, therefore it is a new claim, not a duplicate."
+          }
+        }
+      ]
+    },
+    {
+      "scenario_id": "DUP-04",
+      "name": "Core Service Information Comparison",
+      "description": "Compare key service details (POS, DOS, DX, units, CPT, provider, modifier) between the new claim and the extracted history claims.",
+      "required_data": [
+        "service_information_comparison_result"
+      ],
+      "logic": [
+        {
+          "condition": "Service Information is 'Same'",
+          "if_true": {
+            "action": "PROCEED",
+            "next_step": "DUP-05"
+          },
+          "if_false": {
+            "action": "PROCEED",
+            "next_step": "DUP-06"
+          }
+        }
+      ]
+    },
+    {
+      "scenario_id": "DUP-05",
+      "name": "DCN Review for Same Service Information",
+      "description": "When all service info is identical, the claims are considered duplicates and the one processed first is paid.",
+      "required_data": [
+        "first_claim_dcn",
+        "second_claim_dcn"
+      ],
+      "logic": [
+        {
+          "condition": "This is the first claim processed",
+          "if_true": {
+            "action": "PAY",
+            "reason": "All service information matched, and this was the first claim received."
+          },
+          "if_false": {
+            "action": "DENY",
+            "reason": "All service information matched, but this was the second claim received."
+          }
+        }
+      ]
+    },
+    {
+      "scenario_id": "DUP-06",
+      "name": "Detailed Mismatch Adjudication",
+      "description": "Adjudicate the claim based on specific mismatches in service information, provider, or modifiers when core information is different.",
+      "required_data": [
+        "pos_mismatch_status",
+        "charges_mismatch_status",
+        "units_mismatch_status",
+        "diagnosis_code_mismatch_status",
+        "dos_mismatch_status",
+        "provider_mismatch_status",
+        "modifier_mismatch_status"
+      ],
+      "logic": [
+        {
+          "condition": "Any of [POS, Charges, Units, Diagnosis, DOS] mismatch is true",
+          "if_true": {
+            "action": "DENY",
+            "reason": "Mismatch found in core service information (POS, Charges, Units, Dx, or DOS)."
+          },
+          "if_false": {
+            "action": "PROCEED",
+            "next_step": "DUP-07"
+          }
+        }
+      ]
+    },
+    {
+      "scenario_id": "DUP-07",
+      "name": "Provider and Modifier Mismatch Adjudication",
+      "description": "Final adjudication based on provider or modifier differences when core service info matches.",
+      "required_data": [
+        "provider_mismatch_status",
+        "modifier_mismatch_status",
+        "provider_specialty_status",
+        "billing_group_status",
+        "modifier_payable_status"
+      ],
+      "logic": [
+        {
+          "condition": "Provider Mismatch is true AND Provider Specialty is 'Different' AND Billing Group is 'Different'",
+          "if_true": {
+            "action": "PAY",
+            "reason": "Provider mismatch allowed due to different specialty and billing group."
+          }
+        },
+        {
+          "condition": "Modifier Mismatch is true AND Modifier is 'Payable'",
+          "if_true": {
+            "action": "PAY",
+            "reason": "Modifier mismatch allowed because the new modifier is payable."
+          }
+        },
+        {
+          "condition": "Default Fallback",
+          "if_true": {
+            "action": "DENY",
+            "reason": "Claim denied due to unresolvable provider or modifier mismatch."
+          }
+        }
+      ]
+    }
+  ]
+}
